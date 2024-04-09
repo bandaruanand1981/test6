@@ -7,7 +7,7 @@ variables:
   buildConfiguration: 'Debug'
   portalName: 'pr1-std-demo-portal'
   GremlinEndPoint: 'wss://pr1-std-demo-cosmosdb.gremlin.cosmos.azure.com:443/'
-  DatabaseName: 'PR1'a
+  DatabaseName: 'PR1'
   CosmosAuthKey: 'yNQjfgKFO6PWfb1AhKTmVYN2n0hbtLKT6ohoKHSYLyNi9PFc17mKpgCtSqTqHiidBlkeWqeM1rJ0YPWvD1hIeA=='
 
 resources:
