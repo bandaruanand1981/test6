@@ -1,0 +1,129 @@
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  solution: '**/*.sln'
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Debug'
+  portalName: 'pr1-std-demo-portal'
+  GremlinEndPoint: 'wss://pr1-std-demo-cosmosdb.gremlin.cosmos.azure.com:443/'
+  DatabaseName: 'PR1'a
+  CosmosAuthKey: 'yNQjfgKFO6PWfb1AhKTmVYN2n0hbtLKT6ohoKHSYLyNi9PFc17mKpgCtSqTqHiidBlkeWqeM1rJ0YPWvD1hIeA=='
+
+resources:
+  repositories:
+  - repository: pr1-standard-repo
+    type: git
+    name: PR1-Standard
+    ref: demo
+
+steps:
+- checkout: pr1-standard-repo
+
+- task: FileTransform@1
+  displayName: Change appsettings
+  inputs:
+    folderPath: '$(Build.SourcesDirectory)'
+    fileType: 'json'
+    targetFiles: |
+      **/appsettings.json
+      **/appsettings.test.json
+      
+- task: UseDotNet@2
+  displayName: 'Install .NET Core SDK'
+  inputs:
+    version: 6.0.x
+    performMultiLevelLookup: true
+    includePreviewVersions: true # Required for preview versions    
+- task: NuGetToolInstaller@1
+
+- task: NuGetCommand@2
+  displayName: 'NuGet Restore for solution'
+  inputs:
+    restoreSolution: '$(solution)'
+
+# npm v1
+# Install and publish npm packages, or run an npm command. Supports npmjs.com and authenticated registries like Azure Artifacts.
+- task: Npm@1
+  displayName: Portal NPM Install
+  inputs:
+    command: custom
+    customCommand: 'install --legacy-peer-deps'
+    workingDir: '$(Build.SourcesDirectory)/PR1.Portal' # Working folder that contains package.json. 
+  # Advanced
+    verbose: true
+    publishPackageMetadata: true
+
+- task: Npm@1
+  displayName: Portal Build
+  inputs:
+    command: custom
+    workingDir: '$(Build.SourcesDirectory)/PR1.Portal' # Working folder that contains package.json. 
+    customCommand: 'run build -- --configuration=demo'
+  # Advanced
+    verbose: true
+    publishPackageMetadata: true
+
+- task: CopyPublishBuildArtifacts@1
+  displayName: 'Copy Publish Artifact: $(portalName)'
+  inputs:
+    CopyRoot: '$(Build.SourcesDirectory)/PR1.Portal/dist'
+    Contents: '**'
+    ArtifactName: $(portalName)
+    ArtifactType: Container
+
+
+- task: VSBuild@1
+  displayName: 'Build and zip solution'
+  inputs:
+    solution: '$(solution)'
+    msbuildArgs: '/p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:DesktopBuildPackageLocation="$(build.artifactStagingDirectory)\WebApp.zip" /p:DeployIisAppPath="Default Web Site"'
+    platform: '$(buildPlatform)'
+    configuration: '$(buildConfiguration)'
+
+- task: VSTest@2
+  displayName: 'Setup tests'
+  inputs:
+    testSelector: 'testAssemblies'
+    testAssemblyVer2: |
+      **\*test.dll
+      !**\*TestAdapter.dll
+      !**\obj\**  
+
+- task: DotNetCoreCLI@2
+  displayName: 'Run tests'
+  inputs:
+    command: test
+    projects: '**/PR1.Tests.Integration/*.csproj'
+    arguments: '--configuration $(buildConfiguration)'
+
+- task: DotNetCoreCLI@2
+  displayName: 'Publish and zip PR1.API.Private.EndPoints'
+  inputs:
+    command: publish
+    publishWebProjects: false
+    projects: '**/**/PR1.API.Private.EndPoints.csproj'
+    arguments: '--configuration $(BuildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+    zipAfterPublish: true
+
+- task: PublishBuildArtifacts@1
+  displayName: 'publish artifacts for portal'
+
+- task: AzureRmWebAppDeployment@4
+  displayName: 'Deploy to pr1-std-demo-private-endpoints'
+  inputs:
+    ConnectionType: 'AzureRM'
+    azureSubscription: 'Pay-As-You-Go Dev/Test(cf1519c8-fd5a-4fa6-a580-309d423e9024)'
+    appType: 'webApp'
+    WebAppName: 'pr1-std-demo-private-endpoints'
+    package: '$(Build.ArtifactStagingDirectory)/**/PR1.API.Private.EndPoints.zip'
+    deployToSlotOrASE: false
+
+- task: AzureWebApp@1
+  displayName: 'Deploy to $(portalName)'
+  inputs:    
+    azureSubscription: 'Pay-As-You-Go Dev/Test(cf1519c8-fd5a-4fa6-a580-309d423e9024)'    
+    appName: '$(portalName)'
+    appType: 'webApp'
+    package: '$(Build.ArtifactStagingDirectory)/$(portalName)'
+    deployToSlotOrASE: false
